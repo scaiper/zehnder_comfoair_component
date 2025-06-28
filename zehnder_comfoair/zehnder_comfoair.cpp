@@ -164,24 +164,34 @@ Coroutine<int> ZehnderComfoAirComponent::read_response(Context& ctx, cmd_t cmd, 
   }
 
   // data
-  for (unsigned i = 0; i < received_data_len; ++i) {
-    uint8_t b;
-    if (!co_await this->read_byte_coro(ctx, &b)) {
+  auto len_remainder = received_data_len;
+  auto cur_data_ptr = data;
+  bool in_escape_sequence = false;
+  while (len_remainder > 0) {
+    if (!co_await this->read_array_coro(ctx, cur_data_ptr, len_remainder)) {
       ESP_LOGW(TAG, "Failed to read data");
       co_return -1;
     }
-    if (b == CODE_ESCAPE) {
-      if (!co_await this->read_byte_coro(ctx, &b)) {
-        ESP_LOGW(TAG, "Failed to read data");
-        co_return -1;
-      }
-      if (b != CODE_ESCAPE) {
-        ESP_LOGW(TAG, "Invalid escape sequence %x%x", CODE_ESCAPE, b);
-        co_return -1;
-      }
+    unsigned i = 0, j = 0;
+    for (; j < len_remainder; ++i, ++j) {
+        if (!in_escape_sequence && cur_data_ptr[j] == CODE_ESCAPE) {
+            ++j;
+            in_escape_sequence = true;
+            if (j >= len_remainder) break;
+        }
+
+        if (in_escape_sequence && cur_data_ptr[j] != CODE_ESCAPE) {
+            ESP_LOGW(TAG, "Invalid escape sequence %x%x", CODE_ESCAPE, cur_data_ptr[j]);
+            co_return -1;
+        }
+
+        in_escape_sequence = false;
+        cksum += cur_data_ptr[j];
+        cur_data_ptr[i] = cur_data_ptr[j];
     }
-    data[i] = b;
-    cksum += b;
+
+    len_remainder = j - i;
+    cur_data_ptr += i;
   }
 
   // checksum

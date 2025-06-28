@@ -3,10 +3,10 @@
 An ESPHome component to interface with a Zehnder ventilation unit.
 
 Zender ventilation units have a serial RS232 port using a RJ45 (8P8C) socket.
-Pin 1: 21V
-Pin 2: RS232 RX
-Pin 3: RS232 TX
-Pin 8: GND
+  * Pin 1: 21V
+  * Pin 2: RS232 RX
+  * Pin 3: RS232 TX
+  * Pin 8: GND
 The protocol is described in detail [here](http://www.see-solutions.de/sonstiges/Protokollbeschreibung_ComfoAir.pdf).
 In the document it says that Pin 1 is 12V, but my WHR930 have 21V. So get a step-down regulator with high enough input voltage range.
 

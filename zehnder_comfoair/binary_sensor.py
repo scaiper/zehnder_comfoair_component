@@ -2,7 +2,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import binary_sensor
 from esphome.const import (
-    ICON_AIR_FILTER,
+    DEVICE_CLASS_PROBLEM,
 )
 
 from . import CONF_ZEHNDER_COMFOAIR_ID, zehnder_comfoair_ns, ZehnderComfoAirComponent
@@ -16,7 +16,7 @@ CONFIG_SCHEMA = (
         {
             cv.GenerateID(CONF_ZEHNDER_COMFOAIR_ID): cv.use_id(ZehnderComfoAirComponent),
             cv.Optional(CONF_FILTER_FULL): binary_sensor.binary_sensor_schema(
-                icon=ICON_AIR_FILTER,
+                device_class=DEVICE_CLASS_PROBLEM,
             ),
         }
     )

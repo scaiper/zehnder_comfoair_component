@@ -26,6 +26,8 @@ constexpr uint8_t SUPPLY_TEMP_MASK = 0x02;
 constexpr uint8_t EXTRACT_TEMP_MASK = 0x04;
 constexpr uint8_t EXHAUST_TEMP_MASK = 0x08;
 
+constexpr uint32_t READ_TIMEOUT_MS = 10000;
+
 void ZehnderComfoAirComponent::setup() {
 #ifdef USE_NUMBER
   this->level_number_->add_on_state_callback([this](float value) {
@@ -406,7 +408,12 @@ Coroutine<void> ZehnderComfoAirComponent::apply_comfort_temperature(Context& ctx
 }
 
 Coroutine<bool> ZehnderComfoAirComponent::read_array_coro(Context&, uint8_t* data, size_t data_len) {
+  auto start_time = millis();
+
   while (static_cast<size_t>(this->available()) < data_len) {
+    if (millis() - start_time > READ_TIMEOUT_MS) {
+      co_return false;
+    }
     co_await std::suspend_always{};
   }
 

@@ -73,6 +73,8 @@ class ZehnderComfoAirComponent : public uart::UARTDevice, public PollingComponen
     Coroutine<void> apply_level(Context& ctx, uint8_t level);
     Coroutine<void> apply_comfort_temperature(Context& ctx, float t);
 
+    Coroutine<void> wait(Context&, uint64_t delay_ms);
+
 #ifdef USE_SENSOR
     sensor::Sensor *bypass_status_sensor_;
     sensor::Sensor *outside_temperature_sensor_;

@@ -28,6 +28,9 @@ constexpr uint8_t EXHAUST_TEMP_MASK = 0x08;
 
 constexpr uint32_t READ_TIMEOUT_MS = 10000;
 
+constexpr int CMD_ATTEMPTS = 3;
+constexpr uint64_t CMD_RETRY_DELAY_MS = 1000;
+
 void ZehnderComfoAirComponent::setup() {
 #ifdef USE_NUMBER
   this->level_number_->add_on_state_callback([this](float value) {
@@ -393,18 +396,27 @@ Coroutine<void> ZehnderComfoAirComponent::update_faults(Context& ctx) {
 
 Coroutine<void> ZehnderComfoAirComponent::apply_level(Context& ctx, uint8_t level) {
   uint8_t raw_level = level + 1;
-  if (!co_await this->send_command(ctx, 0x0099, &raw_level, 1)) {
-    ESP_LOGW(TAG, "Failed to apply level");
-    co_return;
+
+  for (int i = 0; i < CMD_ATTEMPTS; ++i) {
+    if (co_await this->send_command(ctx, 0x0099, &raw_level, 1)) {
+      break;
+    } else {
+      ESP_LOGW(TAG, "Failed to apply level");
+      co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
+    }
   }
 }
 
 Coroutine<void> ZehnderComfoAirComponent::apply_comfort_temperature(Context& ctx, float t) {
-    uint8_t raw_temp = this->serialize_temperature(t);
-    if (!co_await this->send_command(ctx, 0x00D3, &raw_temp, 1)) {
+  uint8_t raw_temp = this->serialize_temperature(t);
+  for (int i = 0; i < CMD_ATTEMPTS; ++i) {
+    if (co_await this->send_command(ctx, 0x00D3, &raw_temp, 1)) {
+      break;
+    } else {
         ESP_LOGW(TAG, "Failed to apply comfort temperature");
-        co_return;
+        co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
     }
+  }
 }
 
 Coroutine<bool> ZehnderComfoAirComponent::read_array_coro(Context&, uint8_t* data, size_t data_len) {
@@ -418,6 +430,14 @@ Coroutine<bool> ZehnderComfoAirComponent::read_array_coro(Context&, uint8_t* dat
   }
 
   co_return this->read_array(data, data_len);
+}
+
+Coroutine<void> ZehnderComfoAirComponent::wait(Context&, uint64_t delay_ms) {
+  auto start = millis_64();
+
+  while (millis_64() - start < delay_ms) {
+    co_await std::suspend_always{};
+  }
 }
 
 #ifdef USE_NUMBER

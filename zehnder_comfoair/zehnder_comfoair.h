@@ -12,6 +12,10 @@
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
+#ifdef USE_BUTTON
+#include "esphome/components/button/button.h"
+#endif
+
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/component.h"
 
@@ -46,6 +50,11 @@ class ZehnderComfoAirComponent : public uart::UARTDevice, public PollingComponen
     void set_comfort_temperature_number(number::Number *comfort_temperature_number) { this->comfort_temperature_number_ = comfort_temperature_number; }
 #endif
 
+#ifdef USE_BUTTON
+    void set_open_bypass_button(button::Button *open_bypass_button) { this->open_bypass_button_ = open_bypass_button; }
+    void set_reset_filters_button(button::Button *reset_filters_button) { this->reset_filters_button_ = reset_filters_button; }
+#endif
+
   protected:
     using cmd_t = uint16_t;
 
@@ -53,6 +62,10 @@ class ZehnderComfoAirComponent : public uart::UARTDevice, public PollingComponen
     Coroutine<bool> read_byte_coro(Context& ctx, uint8_t* data) { return this->read_array_coro(ctx, data, 1); }
 
     Coroutine<bool> send_command(Context& ctx, cmd_t cmd, const uint8_t *data = nullptr, size_t data_len = 0);
+
+    template<size_t N>
+    Coroutine<bool> send_command(Context& ctx, cmd_t cmd, const std::array<uint8_t, N>& data) { return this->send_command(ctx, cmd, data.data(), data.size()); }
+
     Coroutine<int> read_response(Context& ctx, cmd_t cmd, uint8_t *data, uint8_t data_len);
 
     Coroutine<bool> query_data(Context& ctx, cmd_t cmd, uint8_t *data, uint8_t data_len);
@@ -72,6 +85,10 @@ class ZehnderComfoAirComponent : public uart::UARTDevice, public PollingComponen
     Coroutine<void> update_faults(Context& ctx);
     Coroutine<void> apply_level(Context& ctx, uint8_t level);
     Coroutine<void> apply_comfort_temperature(Context& ctx, float t);
+    Coroutine<void> apply_bypass(Context& ctx, bool open);
+    Coroutine<void> apply_reset_filters(Context& ctx);
+
+    Coroutine<bool> do_apply_bypass(Context& ctx, bool open);
 
     Coroutine<void> wait(Context&, uint64_t delay_ms);
 
@@ -90,6 +107,11 @@ class ZehnderComfoAirComponent : public uart::UARTDevice, public PollingComponen
 #ifdef USE_NUMBER
     number::Number *level_number_;
     number::Number *comfort_temperature_number_;
+#endif
+
+#ifdef USE_BUTTON
+    button::Button *open_bypass_button_;
+    button::Button *reset_filters_button_;
 #endif
 
     int comfort_temperature_pending_updates_ = 0;

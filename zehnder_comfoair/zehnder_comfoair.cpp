@@ -2,6 +2,9 @@
 #ifdef USE_NUMBER
 #include "number.h"
 #endif
+#ifdef USE_BUTTON
+#include "button.h"
+#endif
 
 #include "esphome/core/log.h"
 
@@ -29,7 +32,7 @@ constexpr uint8_t EXHAUST_TEMP_MASK = 0x08;
 constexpr uint32_t READ_TIMEOUT_MS = 10000;
 
 constexpr int CMD_ATTEMPTS = 3;
-constexpr uint64_t CMD_RETRY_DELAY_MS = 1000;
+constexpr uint32_t CMD_RETRY_DELAY_MS = 1000;
 
 void ZehnderComfoAirComponent::setup() {
 #ifdef USE_NUMBER
@@ -51,6 +54,21 @@ void ZehnderComfoAirComponent::setup() {
 
   });
 #endif
+
+#ifdef USE_BUTTON
+    this->open_bypass_button_->add_on_press_callback([this]() {
+      this->task_queue.enqueue([this](Context& ctx) -> Coroutine<void> {
+        co_await this->apply_bypass(ctx, true);
+      });
+    });
+
+
+    this->reset_filters_button_->add_on_press_callback([this]() {
+      this->task_queue.enqueue([this](Context& ctx) -> Coroutine<void> {
+        co_await this->apply_reset_filters(ctx);
+      });
+    });
+#endif
 }
 
 void ZehnderComfoAirComponent::loop() {
@@ -61,6 +79,7 @@ void ZehnderComfoAirComponent::update() {
   this->task_queue.enqueue([this](Context& ctx) -> Coroutine<void> {
     co_await this->update_temperatures(ctx);
     co_await this->update_bypass_status(ctx);
+    //co_await this->update_bypass_control_status(ctx);
     co_await this->update_faults(ctx);
   });
 }
@@ -237,7 +256,7 @@ Coroutine<bool> ZehnderComfoAirComponent::query_data(Context& ctx, cmd_t cmd, ui
     co_return 0;
   }
 
-  co_return len;
+  co_return true;
 }
 
 void ZehnderComfoAirComponent::send_ack() {
@@ -268,10 +287,12 @@ Coroutine<bool> ZehnderComfoAirComponent::read_escape_sequence(Context& ctx, uin
       co_return false;
     }
 
-    if (!co_await this->read_byte_coro(ctx, &b)) {
-      ESP_LOGW(TAG, "Failed to read escape sequence");
-      co_return false;
-    }
+    do {
+      if (!co_await this->read_byte_coro(ctx, &b)) {
+        ESP_LOGW(TAG, "Failed to read escape sequence");
+        co_return false;
+      }
+    } while (skip_mismatched && b == CODE_ESCAPE);
   } while (skip_mismatched && b != byte);
 
   if (b != byte) {
@@ -419,11 +440,58 @@ Coroutine<void> ZehnderComfoAirComponent::apply_comfort_temperature(Context& ctx
   }
 }
 
+Coroutine<void> ZehnderComfoAirComponent::apply_bypass(Context& ctx, bool open) {
+  for (int i = 0; i < CMD_ATTEMPTS; ++i) {
+    if (co_await this->do_apply_bypass(ctx, open)) {
+      break;
+    } else {
+        ESP_LOGW(TAG, "Failed to apply comfort temperature");
+        co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
+    }
+  }
+}
+
+Coroutine<bool> ZehnderComfoAirComponent::do_apply_bypass(Context& ctx, bool open) {
+  // start test mode
+  if (!co_await this->query_data(ctx, 0x0001, nullptr, 0)) {
+    ESP_LOGW(TAG, "Failed to start test mode");
+    co_return false;
+  }
+
+  //set flaps
+  std::array<uint8_t, 2> data = {open, 3};
+  if (!co_await this->send_command(ctx, 0x0009, data)) {
+    ESP_LOGW(TAG, "Failed to set flaps");
+    co_return false;
+  }
+
+  // exit test mode
+  if (!co_await this->query_data(ctx, 0x0019, nullptr, 0)) {
+    ESP_LOGW(TAG, "Failed to exit test mode");
+    co_return false;
+  }
+
+  co_return true;
+}
+
+Coroutine<void> ZehnderComfoAirComponent::apply_reset_filters(Context& ctx) {
+  std::array<uint8_t, 4> data = {0, 0, 0, 1};
+  for (int i = 0; i < CMD_ATTEMPTS; ++i) {
+    if (co_await this->send_command(ctx, 0x00DB, data)) {
+      break;
+    } else {
+        ESP_LOGW(TAG, "Failed to reset filters");
+        co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
+    }
+  }
+}
+
 Coroutine<bool> ZehnderComfoAirComponent::read_array_coro(Context&, uint8_t* data, size_t data_len) {
-  auto start_time = millis();
+  auto start_time = millis_64();
 
   while (static_cast<size_t>(this->available()) < data_len) {
-    if (millis() - start_time > READ_TIMEOUT_MS) {
+    if (millis_64() - start_time > READ_TIMEOUT_MS) {
+      ESP_LOGW(TAG, "Read timeout");
       co_return false;
     }
     co_await std::suspend_always{};
@@ -443,6 +511,12 @@ Coroutine<void> ZehnderComfoAirComponent::wait(Context&, uint64_t delay_ms) {
 #ifdef USE_NUMBER
 void ZehnderComfoAirNumber::control(float value) {
   this->publish_state(value);
+}
+#endif
+
+
+#ifdef USE_BUTTON
+void ZehnderComfoAirButton::press_action() {
 }
 #endif
 

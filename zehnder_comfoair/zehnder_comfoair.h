@@ -26,6 +26,13 @@ using state_machine::Queue;
 using state_machine::Coroutine;
 using state_machine::Context;
 
+template<class F, class R, class ...Args>
+concept CoroutineC = requires (Context& ctx, F&& f, Args&& ...args)
+{
+    { f(ctx, args...) } -> std::same_as<Coroutine<R>>;
+};
+
+
 class ZehnderComfoAirComponent : public uart::UARTDevice, public PollingComponent {
   public:
     void setup() override;
@@ -88,8 +95,6 @@ class ZehnderComfoAirComponent : public uart::UARTDevice, public PollingComponen
     Coroutine<void> apply_bypass(Context& ctx, bool open);
     Coroutine<void> apply_reset_filters(Context& ctx);
 
-    Coroutine<bool> do_apply_bypass(Context& ctx, bool open);
-
     Coroutine<void> wait(Context&, uint64_t delay_ms);
 
 #ifdef USE_SENSOR
@@ -117,7 +122,32 @@ class ZehnderComfoAirComponent : public uart::UARTDevice, public PollingComponen
     int comfort_temperature_pending_updates_ = 0;
 
     Queue task_queue;
+
+    template<CoroutineC<bool> F>
+    Coroutine<bool> do_with_retries(Context& ctx, F&& f);
 };
+
+template<CoroutineC<bool> F>
+Coroutine<bool> ZehnderComfoAirComponent::do_with_retries(Context& ctx, F&& f) {
+  constexpr int CMD_ATTEMPTS = 3;
+  constexpr uint32_t CMD_RETRY_DELAY_MS = 1000;
+
+  int i = 0;
+  while (true) {
+    if (co_await f(ctx)) {
+      co_return true;
+    }
+
+    i++;
+    if (i >= CMD_ATTEMPTS) {
+      break;
+    }
+
+    co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
+  }
+
+  co_return false;
+}
 
 
 }  // namespace empty_uart_component

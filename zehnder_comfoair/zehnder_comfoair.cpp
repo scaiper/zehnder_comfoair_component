@@ -31,9 +31,6 @@ constexpr uint8_t EXHAUST_TEMP_MASK = 0x08;
 
 constexpr uint32_t READ_TIMEOUT_MS = 10000;
 
-constexpr int CMD_ATTEMPTS = 3;
-constexpr uint32_t CMD_RETRY_DELAY_MS = 1000;
-
 void ZehnderComfoAirComponent::setup() {
 #ifdef USE_NUMBER
   this->level_number_->add_on_state_callback([this](float value) {
@@ -418,71 +415,58 @@ Coroutine<void> ZehnderComfoAirComponent::update_faults(Context& ctx) {
 Coroutine<void> ZehnderComfoAirComponent::apply_level(Context& ctx, uint8_t level) {
   uint8_t raw_level = level + 1;
 
-  for (int i = 0; i < CMD_ATTEMPTS; ++i) {
-    if (co_await this->send_command(ctx, 0x0099, &raw_level, 1)) {
-      break;
-    } else {
-      ESP_LOGW(TAG, "Failed to apply level");
-      co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
-    }
+  if (!co_await this->do_with_retries(ctx, [this, &raw_level](Context& ctx) {
+    return this->send_command(ctx, 0x0099, &raw_level, 1);
+  })) {
+    ESP_LOGW(TAG, "Failed to apply level");
+    co_return;
   }
 }
 
 Coroutine<void> ZehnderComfoAirComponent::apply_comfort_temperature(Context& ctx, float t) {
   uint8_t raw_temp = this->serialize_temperature(t);
-  for (int i = 0; i < CMD_ATTEMPTS; ++i) {
-    if (co_await this->send_command(ctx, 0x00D3, &raw_temp, 1)) {
-      break;
-    } else {
-        ESP_LOGW(TAG, "Failed to apply comfort temperature");
-        co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
-    }
+  if (!co_await this->do_with_retries(ctx, [this, &raw_temp](Context& ctx) {
+    return this->send_command(ctx, 0x00D3, &raw_temp, 1);
+  })) {
+    ESP_LOGW(TAG, "Failed to apply comfort temperature");
+    co_return;
   }
 }
 
 Coroutine<void> ZehnderComfoAirComponent::apply_bypass(Context& ctx, bool open) {
-  for (int i = 0; i < CMD_ATTEMPTS; ++i) {
-    if (co_await this->do_apply_bypass(ctx, open)) {
-      break;
-    } else {
-        ESP_LOGW(TAG, "Failed to apply comfort temperature");
-        co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
-    }
-  }
-}
-
-Coroutine<bool> ZehnderComfoAirComponent::do_apply_bypass(Context& ctx, bool open) {
   // start test mode
-  if (!co_await this->query_data(ctx, 0x0001, nullptr, 0)) {
+  if (!co_await this->do_with_retries(ctx, [this](Context& ctx) {
+    return this->query_data(ctx, 0x0001, nullptr, 0);
+  })) {
     ESP_LOGW(TAG, "Failed to start test mode");
-    co_return false;
+    co_return;
   }
 
   //set flaps
   std::array<uint8_t, 2> data = {open, 3};
-  if (!co_await this->send_command(ctx, 0x0009, data)) {
+  if (!co_await this->do_with_retries(ctx, [this, &data](Context& ctx) {
+    return this->send_command(ctx, 0x0009, data);
+  })) {
     ESP_LOGW(TAG, "Failed to set flaps");
-    co_return false;
+    co_return;
   }
 
   // exit test mode
-  if (!co_await this->query_data(ctx, 0x0019, nullptr, 0)) {
+  if (!co_await this->do_with_retries(ctx, [this](Context& ctx) {
+    return this->query_data(ctx, 0x0019, nullptr, 0);
+  })) {
     ESP_LOGW(TAG, "Failed to exit test mode");
-    co_return false;
+    co_return;
   }
-
-  co_return true;
 }
 
 Coroutine<void> ZehnderComfoAirComponent::apply_reset_filters(Context& ctx) {
   std::array<uint8_t, 4> data = {0, 0, 0, 1};
-  for (int i = 0; i < CMD_ATTEMPTS; ++i) {
-    if (co_await this->send_command(ctx, 0x00DB, data)) {
-      break;
-    } else {
-        ESP_LOGW(TAG, "Failed to reset filters");
-        co_await this->wait(ctx, CMD_RETRY_DELAY_MS);
-    }
+  if (!co_await this->do_with_retries(ctx, [this, &data](Context& ctx) {
+    return this->send_command(ctx, 0x00DB, data);
+  })) {
+    ESP_LOGW(TAG, "Failed to reset filters");
+    co_return;
   }
 }
 
